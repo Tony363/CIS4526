@@ -10,7 +10,15 @@ from sklearn.model_selection import train_test_split
 from typing import Tuple,Iterable
 
 class Node:
-    def __init__(self, feature=None, threshold=None, left=None, right=None, *, value=None):
+    def __init__(
+        self, 
+        feature=None, 
+        threshold=None, 
+        left=None, 
+        right=None, 
+        *, 
+        value=None
+    )->None:
         self.feature = feature
         self.threshold = threshold
         self.left = left
@@ -199,7 +207,6 @@ def accuracy_score(y_true, y_pred):
 def classification_report(y_test, y_pred):
     # calculate precision, recall, f1-score
     # TODO:
-    result = 'To be implemented'
     cm = confusion_matrix(y_test,y_pred)
     precision = cm[1,1]/(cm[1,1] + cm[0,1])
     recall = cm[1,1]/(cm[1,1] + cm[1,0])
@@ -217,7 +224,7 @@ def confusion_matrix(y_test, y_pred):
     result[0,1] = np.sum(np.logical_and(y_pred == 1, y_test == 0))
     result[1,0] = np.sum(np.logical_and(y_pred == 0, y_test == 1))
     # end TODO
-    return(result)
+    return result
 
 
 def _test():

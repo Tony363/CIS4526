@@ -9,6 +9,8 @@ from sklearn import datasets
 from sklearn.model_selection import train_test_split
 from typing import Tuple,Iterable
 
+
+
 class Node:
     def __init__(
         self, 
@@ -30,7 +32,9 @@ class Node:
     
 
 class DecisionTreeModel:
-
+    """
+    everything should work for strings and int vectors
+    """
     def __init__(
         self, 
         max_depth:int=100, 
@@ -43,10 +47,16 @@ class DecisionTreeModel:
         self.min_samples_split = min_samples_split
         self.impurity_stopping_threshold = impurity_stopping_threshold
         self.root = None
+        
+        # Additional global variables
+        self.n_samples = self.n_features = self.classes = self.split = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
         # TODO
         # call the _fit method
+        if isinstance(y[0],str):
+            self.classes = {cl:idx for idx,cl in enumerate(np.unique(y))}
+            y = np.array([self.classes[cl] for cl in y])
         self._fit(X,y)
         # end TODO
         print("Done fitting")
@@ -66,12 +76,13 @@ class DecisionTreeModel:
         predictions = [self._traverse_tree(x, self.root) for x in X]
         return np.array(predictions)    
         
-    def _is_finished(self, depth):
+    def _is_finished(self, depth): # entropy case? gini case? which impurity?
         # TODO: add another stopping criteria
         # modify the signature of the method if needed
         return (depth >= self.max_depth
-            or self.n_class_labels == 1
-            or self.n_samples < self.min_samples_split)
+            or len(self.classes) == 1
+            or self.n_samples < self.min_samples_split
+            or self._is_homogenous_enough())
         
         if (depth >= self.max_depth
             or self.n_class_labels == 1
@@ -81,15 +92,14 @@ class DecisionTreeModel:
         return False
     
     def _is_homogenous_enough(self):
-        # TODO: for graduate students only
-        result = False
+        # TODO: 
         # end TODO
-        return result
+        return self.split['score'] < self.impurity_stopping_threshold
                               
     def _build_tree(self, X, y, depth=0):
         self.n_samples, self.n_features = X.shape
-        self.n_class_labels = len(np.unique(y))
-
+        # self.n_class_labels = len(np.unique(y))
+        
         # stopping criteria
         if self._is_finished(depth):
             most_common_Label = np.argmax(np.bincount(y))
@@ -107,7 +117,7 @@ class DecisionTreeModel:
     
 
     def _gini(self, y):
-        #TODO
+        #TODO convert to categorical as well
         proportions = np.bincount(y) / len(y)
         gini = np.sum([p * (1 - p) for p in proportions if p > 0])
         #end TODO
@@ -116,12 +126,8 @@ class DecisionTreeModel:
     def _entropy(self, y:Iterable):
         # TODO: the following won't work if y is not integer
         # make it work for the cases where y is a categorical variable
-        y = np.zeros(self.n_class_labels)
-        # classes = {cls:i for i,cls in enumerate(np.unique(y))} # don't know total classes and its labels
-        # y = np.array([classes[cl] for cl in y])
         proportions = np.bincount(y) / len(y)
         entropy = -np.sum([p * np.log2(p) for p in proportions if p > 0])
-
         # end TODO
         return entropy
         
@@ -148,7 +154,7 @@ class DecisionTreeModel:
         '''TODO: add comments here
 
         '''
-        split = {'score':- 1, 'feat': None, 'thresh': None}
+        self.split = {'score':- 1, 'feat': None, 'thresh': None}
 
         for feat in features:
             X_feat = X[:, feat]
@@ -156,12 +162,12 @@ class DecisionTreeModel:
             for thresh in thresholds:
                 score = self._information_gain(X_feat, y, thresh)
 
-                if score > split['score']:
-                    split['score'] = score
-                    split['feat'] = feat
-                    split['thresh'] = thresh
+                if score > self.split['score']:
+                    self.split['score'] = score
+                    self.split['feat'] = feat
+                    self.split['thresh'] = thresh
 
-        return split['feat'], split['thresh']
+        return self.split['feat'], self.split['thresh']
     
     def _traverse_tree(self, x, node):
         '''TODO: add some comments here
@@ -211,8 +217,20 @@ def classification_report(y_test, y_pred):
     precision = cm[1,1]/(cm[1,1] + cm[0,1])
     recall = cm[1,1]/(cm[1,1] + cm[1,0])
     f1 = 2*(precision * recall)/(precision + recall)
+    acc = accuracy_score(y_test,y_pred)
     # end TODO
-    return(precision,recall,f1)
+    '''
+                  precision    recall  f1-score   support
+
+     class 0       0.50      1.00      0.67         1
+     class 1       0.00      0.00      0.00         1
+     class 2       1.00      0.67      0.80         3
+
+    accuracy                           0.60         5
+   macro avg       0.50      0.56      0.49         5
+weighted avg       0.70      0.60      0.61         5
+    '''
+    return f'\t\tprec\trecall\f1-score\tsupport\n' + f'accuracy\t\t\t\t{acc}\n'+ 'macro avg\t'
 
 def confusion_matrix(y_test, y_pred):
     # return the 2x2 matrix

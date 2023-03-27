@@ -14,12 +14,12 @@ from typing import Tuple,Iterable
 class Node:
     def __init__(
         self, 
-        feature=None, 
-        threshold=None, 
-        left=None, 
-        right=None, 
+        feature:np.ndarray=None, 
+        threshold:np.float32=None, 
+        left:object=None, 
+        right:object=None, 
         *, 
-        value=None
+        value:np.float32=None
     )->None:
         self.feature = feature
         self.threshold = threshold
@@ -27,7 +27,7 @@ class Node:
         self.right = right
         self.value = value
     
-    def is_leaf(self):
+    def is_leaf(self)->bool:
         return self.value is not None
     
 
@@ -49,14 +49,24 @@ class DecisionTreeModel:
         self.root = None
         
         # Additional global variables
+        self.loss = self._entropy if self.criterion == 'entropy' else self._gini
         self.n_samples = self.n_features = self.classes = self.split = None
+        
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(
+        self, 
+        X: pd.DataFrame, 
+        y: pd.Series
+    )->None:
         # TODO
         # call the _fit method
-        if isinstance(y[0],str):
-            self.classes = {cl:idx for idx,cl in enumerate(np.unique(y))}
-            y = np.array([self.classes[cl] for cl in y])
+        self.classes = np.unique(y)
+        
+        if isinstance(y,pd.core.series.Series) and y.dtype == 'object':
+            y = y.astype('category').cat.codes
+        if isinstance(X,pd.DataFrame) and isinstance(y,pd.core.series.Series):
+            X,y = X.to_numpy(),y.to_numpy()
+            
         self._fit(X,y)
         # end TODO
         print("Done fitting")
@@ -65,6 +75,8 @@ class DecisionTreeModel:
     def predict(self, X: pd.DataFrame):
         # TODO
         # call the _predict method
+        if isinstance(X,pd.DataFrame):
+            X = X.to_numpy()
         # end TODO
         return self._predict(X)
         
@@ -76,32 +88,31 @@ class DecisionTreeModel:
         predictions = [self._traverse_tree(x, self.root) for x in X]
         return np.array(predictions)    
         
-    def _is_finished(self, depth): # entropy case? gini case? which impurity?
+    def _is_finished(
+        self, 
+        y:np.ndarray,
+        depth:int,
+    )->bool:# entropy case? gini case? which impurity?
         # TODO: add another stopping criteria
         # modify the signature of the method if needed
+        # print(self._is_homogenous_enough(y))
+
         return (depth >= self.max_depth
             or len(self.classes) == 1
             or self.n_samples < self.min_samples_split
-            or self._is_homogenous_enough())
+            or (self.impurity_stopping_threshold > 0 and self._is_homogenous_enough(y)))
         
-        if (depth >= self.max_depth
-            or self.n_class_labels == 1
-            or self.n_samples < self.min_samples_split):
-            return True
-        # end TODO
-        return False
     
-    def _is_homogenous_enough(self):
+    def _is_homogenous_enough(self,y):
         # TODO: 
         # end TODO
-        return self.split['score'] < self.impurity_stopping_threshold
+        return self.loss(y)  < self.impurity_stopping_threshold
                               
     def _build_tree(self, X, y, depth=0):
         self.n_samples, self.n_features = X.shape
-        # self.n_class_labels = len(np.unique(y))
         
         # stopping criteria
-        if self._is_finished(depth):
+        if self._is_finished(y,depth):
             most_common_Label = np.argmax(np.bincount(y))
             return Node(value=most_common_Label)
 
@@ -138,43 +149,50 @@ class DecisionTreeModel:
 
     def _information_gain(self, X, y, thresh):
         # TODO: fix the code so it can switch between the two criterion: gini and entropy 
-        loss = self._entropy if self.criterion == 'entropy' else self._gini
-        parent_loss = loss(y) 
+        parent_loss = self.loss(y) 
         left_idx, right_idx = self._create_split(X, thresh)
         n, n_left, n_right = len(y), len(left_idx), len(right_idx)
 
         if n_left == 0 or n_right == 0: 
             return 0
         
-        child_loss = (n_left / n) * loss(y[left_idx]) + (n_right / n) * loss(y[right_idx])
+        child_loss = (n_left / n) * self.loss(y[left_idx]) + (n_right / n) * self.loss(y[right_idx])
         # end TODO
         return parent_loss - child_loss
        
     def _best_split(self, X, y, features):
-        '''TODO: add comments here
+        """_summary_ TODO
 
-        '''
-        self.split = {'score':- 1, 'feat': None, 'thresh': None}
-
+        Returns:
+            _type_: _description_
+        """
+        split = {'score':- 1, 'feat': None, 'thresh': None}
+        # print(type(X),type(y),type(features),features)
         for feat in features:
             X_feat = X[:, feat]
             thresholds = np.unique(X_feat)
             for thresh in thresholds:
                 score = self._information_gain(X_feat, y, thresh)
 
-                if score > self.split['score']:
-                    self.split['score'] = score
-                    self.split['feat'] = feat
-                    self.split['thresh'] = thresh
+                if score > split['score']:
+                    split['score'] = score
+                    split['feat'] = feat
+                    split['thresh'] = thresh
 
-        return self.split['feat'], self.split['thresh']
+        return split['feat'], split['thresh']
     
-    def _traverse_tree(self, x, node):
-        '''TODO: add some comments here
-        '''
+    def _traverse_tree(
+        self, 
+        x:np.ndarray, 
+        node:Node,
+    )->np.int16:
+        """_summary_ TODO
+
+        Returns:
+            _type_: _description_
+        """
         if node.is_leaf():
             return node.value
-        
         if x[node.feature] <= node.threshold:
             return self._traverse_tree(x, node.left)
         return self._traverse_tree(x, node.right)
@@ -199,7 +217,7 @@ class RandomForestModel(object):
 
 
     def predict(self, X: pd.DataFrame):
-        # TODO:
+        # TODO: Do majority, multilass
         preds = np.array(list(map(lambda tree:tree.predict(X),self.trees)))
         return np.apply_along_axis(func=np.bincount,axis=1,arr=preds)
         # end TODO
@@ -213,6 +231,9 @@ def accuracy_score(y_true, y_pred):
 def classification_report(y_test, y_pred):
     # calculate precision, recall, f1-score
     # TODO:
+    if isinstance(y_test[0],str) and isinstance(y_pred[0],str):
+        y_test,y_pred = y_test.astype('category').cat.codes, y_pred.astype('category').cat.codes
+        
     cm = confusion_matrix(y_test,y_pred)
     precision = cm[1,1]/(cm[1,1] + cm[0,1])
     recall = cm[1,1]/(cm[1,1] + cm[1,0])
@@ -230,12 +251,16 @@ def classification_report(y_test, y_pred):
    macro avg       0.50      0.56      0.49         5
 weighted avg       0.70      0.60      0.61         5
     '''
-    return f'\t\tprec\trecall\f1-score\tsupport\n' + f'accuracy\t\t\t\t{acc}\n'+ 'macro avg\t'
+    return '\t\tprec\trecall\f1-score\tsupport\n' +\
+        'accuracy\t\t\t{:.3f}\n'.format(acc)+\
+            'macro avg\t{:.3f}\t{:.3f}\t{:.3f}\t\n'.format(precision,recall,f1) +\
+                'weight avg\t{:.3f}\t{:.3f}\t{:.3f}\t'.format(precision,recall,f1)
 
 def confusion_matrix(y_test, y_pred):
     # return the 2x2 matrix
-    # TODO:
+    # TODO: Multiclass for ints or strings
     # https://stackoverflow.com/questions/68157408/using-numpy-to-test-for-false-positives-and-false-negatives
+    
     result = np.array([[0, 0], [0, 0]])
     result[1,1] = np.sum(np.logical_and(y_pred == 1, y_test == 1))
     result[0,0] = np.sum(np.logical_and(y_pred == 0, y_test == 0))

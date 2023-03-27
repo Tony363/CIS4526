@@ -37,10 +37,11 @@ class DecisionTreeModel:
     """
     def __init__(
         self, 
+        seed:int,
         max_depth:int=100, 
         criterion:str='gini', 
         min_samples_split:int=2, 
-        impurity_stopping_threshold:int=0
+        impurity_stopping_threshold:int=0.01
     )->None:
         self.max_depth = max_depth
         self.criterion = criterion
@@ -49,6 +50,7 @@ class DecisionTreeModel:
         self.root = None
         
         # Additional global variables
+        self.rng = np.random.RandomState(seed)
         self.loss = self._entropy if self.criterion == 'entropy' else self._gini
         self.n_samples = self.n_features = self.classes = self.split = None
         
@@ -95,7 +97,6 @@ class DecisionTreeModel:
     )->bool:# entropy case? gini case? which impurity?
         # TODO: add another stopping criteria
         # modify the signature of the method if needed
-        # print(self._is_homogenous_enough(y))
 
         return (depth >= self.max_depth
             or len(self.classes) == 1
@@ -117,7 +118,7 @@ class DecisionTreeModel:
             return Node(value=most_common_Label)
 
         # get best split
-        rnd_feats = np.random.choice(self.n_features, self.n_features, replace=False)
+        rnd_feats = self.rng.choice(self.n_features, self.n_features, replace=False)
         best_feat, best_thresh = self._best_split(X, y, rnd_feats)
 
         # grow children recursively
@@ -143,6 +144,9 @@ class DecisionTreeModel:
         return entropy
         
     def _create_split(self, X, thresh):
+        # TODO how to tackle split of All vs None
+        # change left_idx as < and right_idx as >=?
+        # original left_idx <= and right_idx >
         left_idx = np.argwhere(X <= thresh).flatten()
         right_idx = np.argwhere(X > thresh).flatten()
         return left_idx, right_idx
@@ -160,14 +164,25 @@ class DecisionTreeModel:
         # end TODO
         return parent_loss - child_loss
        
-    def _best_split(self, X, y, features):
-        """_summary_ TODO
-
+    def _best_split(
+        self, 
+        X:np.ndarray, 
+        y:np.ndarray, 
+        features:list
+    )->tuple:
+        """_summary_ 
+        TODO
+        
+        Parameters
+        ----------
+        X: input features
+        y: target vector
+        features: feature indexes
+        
         Returns:
-            _type_: _description_
+            tuple: (split features, split threshold)
         """
         split = {'score':- 1, 'feat': None, 'thresh': None}
-        # print(type(X),type(y),type(features),features)
         for feat in features:
             X_feat = X[:, feat]
             thresholds = np.unique(X_feat)
@@ -186,10 +201,16 @@ class DecisionTreeModel:
         x:np.ndarray, 
         node:Node,
     )->np.int16:
-        """_summary_ TODO
-
-        Returns:
-            _type_: _description_
+        """_summary_ 
+        TODO
+        
+        Parameters
+        ----------
+        X: input features vector
+        node: traversed leaf node                
+        Returns
+        -------
+            int: leaf feature value
         """
         if node.is_leaf():
             return node.value
@@ -202,10 +223,16 @@ class RandomForestModel(object):
     # call the above DecisionTreeModel class, not the sklearn classes
     def __init__(
         self, 
+        seed:int,
         n_estimators:int
     )->None:
         # TODO:
-        self.trees = (DecisionTreeModel(),) * n_estimators
+        self.rng = np.random.RandomState(seed)
+        seeds = self.rng.randint(1,100000,size=n_estimators)
+        self.trees = tuple(
+            DecisionTreeModel(seed=seed) 
+            for seed in seeds
+        )
         # end TODO
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
@@ -218,8 +245,14 @@ class RandomForestModel(object):
 
     def predict(self, X: pd.DataFrame):
         # TODO: Do majority, multilass
-        preds = np.array(list(map(lambda tree:tree.predict(X),self.trees)))
-        return np.apply_along_axis(func=np.bincount,axis=1,arr=preds)
+        preds = np.zeros((len(self.trees),X.shape[0]))
+        for idx,tree in enumerate(self.trees):
+            preds[idx] = tree.predict(X)
+        return np.apply_along_axis(
+            func1d=lambda x:np.bincount(x).argmax(),
+            axis=0,
+            arr=preds.astype('int64')
+        )
         # end TODO
 
     
@@ -231,9 +264,12 @@ def accuracy_score(y_true, y_pred):
 def classification_report(y_test, y_pred):
     # calculate precision, recall, f1-score
     # TODO:
-    if isinstance(y_test[0],str) and isinstance(y_pred[0],str):
+    series = isinstance(y_test,pd.core.series.Series) and isinstance(y_pred,pd.core.series.Series)
+    if series and y_test.dtype == y_pred.dtype == 'object':
         y_test,y_pred = y_test.astype('category').cat.codes, y_pred.astype('category').cat.codes
-        
+    if series:
+        y_test,y_pred = y_test.to_numpy(),y_pred.to_numpy()
+    
     cm = confusion_matrix(y_test,y_pred)
     precision = cm[1,1]/(cm[1,1] + cm[0,1])
     recall = cm[1,1]/(cm[1,1] + cm[1,0])
@@ -251,7 +287,7 @@ def classification_report(y_test, y_pred):
    macro avg       0.50      0.56      0.49         5
 weighted avg       0.70      0.60      0.61         5
     '''
-    return '\t\tprec\trecall\f1-score\tsupport\n' +\
+    return '\t\tprec\trecall\tf1-score\tsupport\n' +\
         'accuracy\t\t\t{:.3f}\n'.format(acc)+\
             'macro avg\t{:.3f}\t{:.3f}\t{:.3f}\t\n'.format(precision,recall,f1) +\
                 'weight avg\t{:.3f}\t{:.3f}\t{:.3f}\t'.format(precision,recall,f1)
@@ -271,7 +307,7 @@ def confusion_matrix(y_test, y_pred):
 
 
 def _test():
-    
+    seed = 12345
     df = pd.read_csv('breast_cancer.csv')
     
     #X = df.drop(['diagnosis'], axis=1).to_numpy()
@@ -281,16 +317,19 @@ def _test():
     y = df['diagnosis'].apply(lambda x: 0 if x == 'M' else 1)
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=1
+        X, y, test_size=0.2, random_state=seed
     )
 
-    clf = DecisionTreeModel(max_depth=10)
+    clf = DecisionTreeModel(seed=seed,max_depth=10,)
     clf.fit(X_train, y_train)
 
     y_pred = clf.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-
-    print("Accuracy:", acc)
+    print(classification_report(y_test, y_pred))
+    
+    rfc = RandomForestModel(seed=seed,n_estimators=2)
+    rfc.fit(X_train, y_train)
+    rfc_pred = rfc.predict(X_test)
+    print(classification_report(y_test, rfc_pred))
 
 if __name__ == "__main__":
     _test()

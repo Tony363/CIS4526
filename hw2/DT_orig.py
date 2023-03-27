@@ -135,7 +135,13 @@ def _test():
     acc = accuracy_score(y_test, y_pred)
 
     print("Accuracy:", acc)
-
+    
+    
+    rfc = RandomForestModel(n_estimators=100)
+    rfc.fit(X_train, y_train)
+    rfc_pred = rfc.predict(X_test)
+    print(classification_report(y_test, rfc_pred))
+    print(accuracy_score(y_test, rfc_pred))
 
 if __name__ == "__main__":
     _test()

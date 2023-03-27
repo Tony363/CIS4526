@@ -70,9 +70,7 @@ class DecisionTreeModel:
             X,y = X.to_numpy(),y.to_numpy()
             
         self._fit(X,y)
-        # end TODO
-        print("Done fitting")
-        
+        # end TODO        
 
     def predict(self, X: pd.DataFrame):
         # TODO
@@ -224,13 +222,14 @@ class RandomForestModel(object):
     def __init__(
         self, 
         seed:int,
-        n_estimators:int
+        n_estimators:int,
+        impurity_stopping_threshold:int=0.01
     )->None:
         # TODO:
         self.rng = np.random.RandomState(seed)
         seeds = self.rng.randint(1,100000,size=n_estimators)
         self.trees = tuple(
-            DecisionTreeModel(seed=seed) 
+            DecisionTreeModel(seed=seed,impurity_stopping_threshold=impurity_stopping_threshold) 
             for seed in seeds
         )
         # end TODO

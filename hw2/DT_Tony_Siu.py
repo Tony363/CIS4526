@@ -1,14 +1,9 @@
-
-
 import pandas as pd
 import numpy as np
-import seaborn as sns
 #https://towardsdatascience.com/implementing-a-decision-tree-from-scratch-f5358ff9c4bb
 
-from sklearn import datasets
 from sklearn.model_selection import train_test_split
-from typing import Tuple,Iterable
-
+from eval import confusion_matrix,classification_report,accuracy_score
 
 
 class Node:
@@ -34,6 +29,7 @@ class Node:
 class DecisionTreeModel:
     """
     everything should work for strings and int vectors
+    try entropy instead of gini to test overfitting issue
     """
     def __init__(
         self, 
@@ -43,6 +39,8 @@ class DecisionTreeModel:
         min_samples_split:int=2, 
         impurity_stopping_threshold:int=0.01
     )->None:
+        assert impurity_stopping_threshold > 0, 'impurity_stopping_threshold must be greater than 0 so that the DT won\'t overfit'
+        
         self.max_depth = max_depth
         self.criterion = criterion
         self.min_samples_split = min_samples_split
@@ -52,7 +50,7 @@ class DecisionTreeModel:
         # Additional global variables
         self.rng = np.random.RandomState(seed)
         self.loss = self._entropy if self.criterion == 'entropy' else self._gini
-        self.n_samples = self.n_features = self.classes = self.split = None
+        self.n_samples = self.n_features = self.classes = None
         
 
     def fit(
@@ -63,10 +61,10 @@ class DecisionTreeModel:
         # TODO
         # call the _fit method
         self.classes = np.unique(y)
-        
-        if isinstance(y,pd.core.series.Series) and y.dtype == 'object':
+        y_type = isinstance(y,pd.core.series.Series)
+        if y_type and y.dtype == 'object':
             y = y.astype('category').cat.codes
-        if isinstance(X,pd.DataFrame) and isinstance(y,pd.core.series.Series):
+        if y_type and isinstance(X,pd.DataFrame):
             X,y = X.to_numpy(),y.to_numpy()
             
         self._fit(X,y)
@@ -125,26 +123,25 @@ class DecisionTreeModel:
         right_child = self._build_tree(X[right_idx, :], y[right_idx], depth + 1)
         return Node(best_feat, best_thresh, left_child, right_child)
     
-
-    def _gini(self, y):
+    @staticmethod
+    def _gini(y:np.ndarray)->np.float32:
         #TODO convert to categorical as well
         proportions = np.bincount(y) / len(y)
         gini = np.sum([p * (1 - p) for p in proportions if p > 0])
         #end TODO
         return gini
 
-    def _entropy(self, y:Iterable):
+    @staticmethod
+    def _entropy(y:np.ndarray)->np.float32:
         # TODO: the following won't work if y is not integer
         # make it work for the cases where y is a categorical variable
         proportions = np.bincount(y) / len(y)
         entropy = -np.sum([p * np.log2(p) for p in proportions if p > 0])
         # end TODO
         return entropy
-        
-    def _create_split(self, X, thresh):
-        # TODO how to tackle split of All vs None
-        # change left_idx as < and right_idx as >=?
-        # original left_idx <= and right_idx >
+    
+    @staticmethod
+    def _create_split(X, thresh):
         left_idx = np.argwhere(X <= thresh).flatten()
         right_idx = np.argwhere(X > thresh).flatten()
         return left_idx, right_idx
@@ -228,16 +225,23 @@ class RandomForestModel(object):
         # TODO:
         self.rng = np.random.RandomState(seed)
         seeds = self.rng.randint(1,100000,size=n_estimators)
+        
         self.trees = tuple(
             DecisionTreeModel(seed=seed,impurity_stopping_threshold=impurity_stopping_threshold) 
             for seed in seeds
         )
+        self.__shuffle_idxs = None
         # end TODO
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
         # TODO:
+        self.__shuffle_idxs = np.arange(X.shape[0])
+        # shuffle samples bagging 
+        if isinstance(X,pd.DataFrame) and isinstance(y,pd.core.series.Series):
+            X,y = X.to_numpy(),y.to_numpy()
         for tree in self.trees:
-            tree.fit(X,y)
+            self.rng.shuffle(self.__shuffle_idxs)
+            tree.fit(X[self.__shuffle_idxs],y[self.__shuffle_idxs])
         # end TODO
         print("Fitted RF")
 
@@ -247,6 +251,7 @@ class RandomForestModel(object):
         preds = np.zeros((len(self.trees),X.shape[0]))
         for idx,tree in enumerate(self.trees):
             preds[idx] = tree.predict(X)
+            
         return np.apply_along_axis(
             func1d=lambda x:np.bincount(x).argmax(),
             axis=0,
@@ -254,55 +259,6 @@ class RandomForestModel(object):
         )
         # end TODO
 
-    
-
-def accuracy_score(y_true, y_pred):
-    accuracy = np.sum(y_true == y_pred) / len(y_true)
-    return accuracy
-
-def classification_report(y_test, y_pred):
-    # calculate precision, recall, f1-score
-    # TODO:
-    series = isinstance(y_test,pd.core.series.Series) and isinstance(y_pred,pd.core.series.Series)
-    if series and y_test.dtype == y_pred.dtype == 'object':
-        y_test,y_pred = y_test.astype('category').cat.codes, y_pred.astype('category').cat.codes
-    if series:
-        y_test,y_pred = y_test.to_numpy(),y_pred.to_numpy()
-    
-    cm = confusion_matrix(y_test,y_pred)
-    precision = cm[1,1]/(cm[1,1] + cm[0,1])
-    recall = cm[1,1]/(cm[1,1] + cm[1,0])
-    f1 = 2*(precision * recall)/(precision + recall)
-    acc = accuracy_score(y_test,y_pred)
-    # end TODO
-    '''
-                  precision    recall  f1-score   support
-
-     class 0       0.50      1.00      0.67         1
-     class 1       0.00      0.00      0.00         1
-     class 2       1.00      0.67      0.80         3
-
-    accuracy                           0.60         5
-   macro avg       0.50      0.56      0.49         5
-weighted avg       0.70      0.60      0.61         5
-    '''
-    return '\t\tprec\trecall\tf1-score\tsupport\n' +\
-        'accuracy\t\t\t{:.3f}\n'.format(acc)+\
-            'macro avg\t{:.3f}\t{:.3f}\t{:.3f}\t\n'.format(precision,recall,f1) +\
-                'weight avg\t{:.3f}\t{:.3f}\t{:.3f}\t'.format(precision,recall,f1)
-
-def confusion_matrix(y_test, y_pred):
-    # return the 2x2 matrix
-    # TODO: Multiclass for ints or strings
-    # https://stackoverflow.com/questions/68157408/using-numpy-to-test-for-false-positives-and-false-negatives
-    
-    result = np.array([[0, 0], [0, 0]])
-    result[1,1] = np.sum(np.logical_and(y_pred == 1, y_test == 1))
-    result[0,0] = np.sum(np.logical_and(y_pred == 0, y_test == 0))
-    result[0,1] = np.sum(np.logical_and(y_pred == 1, y_test == 0))
-    result[1,0] = np.sum(np.logical_and(y_pred == 0, y_test == 1))
-    # end TODO
-    return result
 
 
 def _test():
@@ -318,7 +274,6 @@ def _test():
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=seed
     )
-
     clf = DecisionTreeModel(seed=seed,max_depth=10,)
     clf.fit(X_train, y_train)
 
@@ -330,5 +285,6 @@ def _test():
     rfc_pred = rfc.predict(X_test)
     print(classification_report(y_test, rfc_pred))
 
+    
 if __name__ == "__main__":
     _test()

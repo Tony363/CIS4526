@@ -1,8 +1,10 @@
+import os
 import pandas as pd
 import numpy as np
 #https://towardsdatascience.com/implementing-a-decision-tree-from-scratch-f5358ff9c4bb
 
 from sklearn.model_selection import train_test_split
+from multiprocessing import Process, Queue,Lock
 from eval import confusion_matrix,classification_report,accuracy_score
 
 
@@ -70,7 +72,10 @@ class DecisionTreeModel:
         self._fit(X,y)
         # end TODO        
 
-    def predict(self, X: pd.DataFrame):
+    def predict(
+        self, 
+        X: pd.DataFrame
+    )->np.ndarray:
         # TODO
         # call the _predict method
         if isinstance(X,pd.DataFrame):
@@ -82,7 +87,10 @@ class DecisionTreeModel:
     def _fit(self, X, y):
         self.root = self._build_tree(X, y)
         
-    def _predict(self, X):
+    def _predict(
+        self, 
+        X:np.ndarray
+    )->np.ndarray:
         predictions = [self._traverse_tree(x, self.root) for x in X]
         return np.array(predictions)    
         
@@ -100,12 +108,20 @@ class DecisionTreeModel:
             or (self.impurity_stopping_threshold > 0 and self._is_homogenous_enough(y)))
         
     
-    def _is_homogenous_enough(self,y):
+    def _is_homogenous_enough(
+        self,
+        y:np.ndarray
+    )->bool:
         # TODO: 
         # end TODO
         return self.loss(y)  < self.impurity_stopping_threshold
                               
-    def _build_tree(self, X, y, depth=0):
+    def _build_tree(
+        self, 
+        X:np.ndarray, 
+        y:np.ndarray, 
+        depth:int=0
+    )->Node:
         self.n_samples, self.n_features = X.shape
         
         # stopping criteria
@@ -124,7 +140,9 @@ class DecisionTreeModel:
         return Node(best_feat, best_thresh, left_child, right_child)
     
     @staticmethod
-    def _gini(y:np.ndarray)->np.float32:
+    def _gini(
+        y:np.ndarray
+    )->np.float32:
         #TODO convert to categorical as well
         proportions = np.bincount(y) / len(y)
         gini = np.sum([p * (1 - p) for p in proportions if p > 0])
@@ -132,7 +150,9 @@ class DecisionTreeModel:
         return gini
 
     @staticmethod
-    def _entropy(y:np.ndarray)->np.float32:
+    def _entropy(
+        y:np.ndarray
+    )->np.float32:
         # TODO: the following won't work if y is not integer
         # make it work for the cases where y is a categorical variable
         proportions = np.bincount(y) / len(y)
@@ -141,7 +161,10 @@ class DecisionTreeModel:
         return entropy
     
     @staticmethod
-    def _create_split(X, thresh):
+    def _create_split(
+        X:np.ndarray, 
+        thresh:np.float32
+    )->np.float32:
         left_idx = np.argwhere(X <= thresh).flatten()
         right_idx = np.argwhere(X > thresh).flatten()
         return left_idx, right_idx
@@ -220,33 +243,47 @@ class RandomForestModel(object):
         self, 
         seed:int,
         n_estimators:int,
-        impurity_stopping_threshold:int=0.01
+        impurity_stopping_threshold:int=0.01,
+        n_jobs:int=0
     )->None:
         # TODO:
         self.rng = np.random.RandomState(seed)
         seeds = self.rng.randint(1,100000,size=n_estimators)
         
-        self.trees = tuple(
+        self.trees = np.asarray([
             DecisionTreeModel(seed=seed,impurity_stopping_threshold=impurity_stopping_threshold) 
             for seed in seeds
-        )
+        ])
+        
         self.__shuffle_idxs = None
+        self.__n_jobs = n_jobs if n_jobs > 0 and n_jobs < os.cpu_count() else 0
         # end TODO
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
+    def fit(self, X: pd.DataFrame, y: pd.Series)->None:  
         # TODO:
         self.__shuffle_idxs = np.arange(X.shape[0])
         # shuffle samples bagging 
         if isinstance(X,pd.DataFrame) and isinstance(y,pd.core.series.Series):
             X,y = X.to_numpy(),y.to_numpy()
-        for tree in self.trees:
-            self.rng.shuffle(self.__shuffle_idxs)
-            tree.fit(X[self.__shuffle_idxs],y[self.__shuffle_idxs])
+        
+        if self.__n_jobs == 0: 
+            for tree in self.trees:
+                self.rng.shuffle(self.__shuffle_idxs)
+                tree.fit(X[self.__shuffle_idxs],y[self.__shuffle_idxs])
+            return
+        
+        n_estimator_idxs = np.array_split(self.__shuffle_idxs,self.__n_jobs)
+        tree_job = tuple(
+            Process(target=self.__multi_fit,args=(X,y,n_estimator_idxs[p]))
+            for p in range(self.__n_jobs)
+        )
+        for p in tree_job:p.start()
+        for p in tree_job:p.join()
+
         # end TODO
-        print("Fitted RF")
 
 
-    def predict(self, X: pd.DataFrame):
+    def predict(self, X: pd.DataFrame)->np.ndarray:
         # TODO: Do majority, multilass
         preds = np.zeros((len(self.trees),X.shape[0]))
         for idx,tree in enumerate(self.trees):
@@ -258,6 +295,18 @@ class RandomForestModel(object):
             arr=preds.astype('int64')
         )
         # end TODO
+    
+    def __multi_fit(
+        self,
+        X:np.ndarray,
+        y:np.ndarray,
+        n_estimators_idxs:int
+    )->None:
+        self.__shuffle_idxs = np.arange(X.shape[0])
+        for tree in self.trees[n_estimators_idxs]:
+            self.rng.shuffle(self.__shuffle_idxs)
+            tree.fit(X[self.__shuffle_idxs],y[self.__shuffle_idxs])       
+        
 
 
 
@@ -280,7 +329,7 @@ def _test():
     y_pred = clf.predict(X_test)
     print(classification_report(y_test, y_pred))
     
-    rfc = RandomForestModel(seed=seed,n_estimators=2)
+    rfc = RandomForestModel(seed=seed,n_estimators=2,n_jobs=8)
     rfc.fit(X_train, y_train)
     rfc_pred = rfc.predict(X_test)
     print(classification_report(y_test, rfc_pred))

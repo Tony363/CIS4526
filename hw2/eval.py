@@ -64,11 +64,7 @@ def classification_report(
         fp_total += fp
         fn_total += fn
         report += "Class {}\t\t{:.3f}\t{:.3f}\t{:.3f}\t{}\n".format(i, precision[i], recall[i], f1_score[i],np.sum(y_test == i))
-    
-    # report = "".join(tuple(
-    #     "Class {}\t\t{:.3f}\t{:.3f}\t{:.3f}\t{}\n".format(i, precision[i], recall[i], f1_score[i],np.sum(y_test == i))
-    #     for i in range(n)
-    # ))
+
     m_precision,m_recall,m_f1 = precision.sum()/precision.size,recall.sum()/recall.size,f1_score.sum()/f1_score.size
     w_precision,w_recall = tp_total/(tp_total + fp_total),tp_total/(tp_total + fn_total)
     w_f1 = 2*w_precision*w_recall/(w_precision + w_recall)
@@ -76,6 +72,6 @@ def classification_report(
     return '\t\tprec\trecall\tf1\tsupport\n' + report +\
         '\nacc\t\t\t\t{:.3f}\t{}\n'.format(acc,y_test.size)+\
             'macro avg\t{:.3f}\t{:.3f}\t{:.3f}\t{}\n'.format(m_precision,m_recall,m_f1,y_test.size) +\
-                'weight avg\t{:.3f}\t{:.3f}\t{:.3f}\t{}'.format(w_precision,w_recall,w_f1,y_test.size)
+                'weight avg\t{:.3f}\t{:.3f}\t{:.3f}\t{}\n'.format(w_precision,w_recall,w_f1,y_test.size)
     
 

@@ -1,5 +1,3 @@
-
-
 import pandas as pd
 import numpy as np
 
@@ -18,6 +16,9 @@ def confusion_matrix(
     # return the 2x2 matrix
     # TODO: Multiclass for ints or strings
     # https://stackoverflow.com/questions/68157408/using-numpy-to-test-for-false-positives-and-false-negatives
+    if isinstance(y_test,pd.core.series.Series) and y_test.dtype == 'object':
+        y_test = y_test.astype('category').cat.codes.to_numpy()
+        
     result = np.zeros((n, n), dtype=np.uint8)
     if n < 3:
         result[1,1] = np.sum(np.logical_and(y_pred == 1, y_test == 1))
@@ -40,11 +41,8 @@ def classification_report(
 )->str:
     # calculate precision, recall, f1-score
     # TODO:
-    series = isinstance(y_test,pd.core.series.Series) and isinstance(y_pred,pd.core.series.Series)
-    if series and y_test.dtype == y_pred.dtype == 'object':
-        y_test,y_pred = y_test.astype('category').cat.codes, y_pred.astype('category').cat.codes
-    if series:
-        y_test,y_pred = y_test.to_numpy(),y_pred.to_numpy()
+    if isinstance(y_test,pd.core.series.Series)  and y_test.dtype == 'object':
+        y_test = y_test.astype('category').cat.codes.to_numpy()
     
     n = np.unique(y_test).size
     cm = confusion_matrix(y_test,y_pred,n=n)
@@ -73,5 +71,3 @@ def classification_report(
         '\nacc\t\t\t\t{:.3f}\t{}\n'.format(acc,y_test.size)+\
             'macro avg\t{:.3f}\t{:.3f}\t{:.3f}\t{}\n'.format(m_precision,m_recall,m_f1,y_test.size) +\
                 'weight avg\t{:.3f}\t{:.3f}\t{:.3f}\t{}\n'.format(w_precision,w_recall,w_f1,y_test.size)
-    
-
